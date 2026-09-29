@@ -1,0 +1,69 @@
+name: Build iOS IPA
+
+# Compila el .ipa de Fiscalizadores SAT-T en un runner de macOS de GitHub.
+# Para ejecutarlo: Actions > Build iOS IPA > Run workflow.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Instalar dependencias
+        run: flutter pub get
+
+      # --------------------------------------------------------------- Firma
+      # GitHub no puede iniciar sesion en la cuenta de Apple, asi que el
+      # certificado y el perfil de aprovisionamiento se suben como secretos
+      # (Settings > Secrets and variables > Actions > New repository secret):
+      #
+      #   IOS_CERTIFICATE      -> contenido del archivo .p12
+      #   IOS_CERTIFICATE_PWD  -> contrasena del .p12
+      #   IOS_PROVISIONING     -> contenido del archivo .mobileprovision
+      #
+      - name: Certificado de desarrollo (.p12)
+        run: |
+          echo "${{ secrets.IOS_CERTIFICATE }}" | base64 --decode > /tmp/cert.p12
+          ls -l /tmp/cert.p12
+
+      - name: Perfil de aprovisionamiento
+        run: |
+          echo "${{ secrets.IOS_PROVISIONING }}" | base64 --decode > /tmp/profile.mobileprovision
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp /tmp/profile.mobileprovision \
+             ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+      - name: Llave temporal para el certificado
+        run: |
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import /tmp/cert.p12 -k build.keychain \
+            -P "${{ secrets.IOS_CERTIFICATE_PWD }}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "" -s build.keychain
+
+      # --------------------------------------------------------------- Build
+      - name: Compilar IPA
+        run: |
+          flutter build ipa --release \
+            --dart-define=FISCALIZADORES_API_KEY=L3nsd@ys \
+            --dart-define=FISCALIZADORES_API_BASE_URL=http://190.119.38.13
+
+      - name: Subir IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: fiscalizadores-satt-ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
