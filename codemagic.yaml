@@ -1,0 +1,27 @@
+workflows:
+  ios-unsigned:
+    name: Build iOS Unsigned (Sin firma personal)
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Obtener dependencias de Flutter
+        script: |
+          flutter packages pub get
+      - name: Instalar CocoaPods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+      - name: Compilar iOS sin firma
+        script: |
+          flutter build ios --release --no-codesign
+      - name: Empaquetar archivo IPA
+        script: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -r ../../../Fiscalizadores_unsigned.ipa Payload
+    artifacts:
+      - "*.ipa"
